@@ -1,4 +1,10 @@
-﻿using Newtonsoft.Json;
+﻿using Google.Apis.Services;
+using Newtonsoft.Json;
+using Google.Apis.Discovery;
+using Google.Apis.Calendar.v3.Data;
+using Google.Apis.Calendar.v3;
+using System.Globalization;
+using Google.Apis.Auth.OAuth2;
 public class Extratime
 {
     public object home;
@@ -127,13 +133,17 @@ public class Venue
 }
 
 
+public class ResponseEvent
+{
+    }
+
 
 public class Program
 {
 
     public static void Main()
     {
-        Task task = MainAsync();
+        Task task = RunEventCreator();
         task.Wait();
     }
 
@@ -161,5 +171,48 @@ public class Program
             Root myDeserializedClass = JsonConvert.DeserializeObject<Root>(body);
             Console.WriteLine(myDeserializedClass.response[0].fixture.id);
         }
+    }
+
+    
+
+    private static async Task RunEventCreator()
+    {
+        /**  var client = new HttpClient();
+          var request = new HttpRequestMessage
+          {
+              Method = HttpMethod.Post,
+              RequestUri = new Uri("https://www.googleapis.com/calendar/v3/calendars/calendarId/events")
+          };
+        **/
+        // Create the service.
+        var service = new CalendarService(new BaseClientService.Initializer
+        {
+            ApplicationName = "NAME HERE",
+            ApiKey = "KEY HERE",
+        });
+
+
+        Event newEvent = new Event()
+        {
+            Summary = "This is a test Event",
+            Description = "Description",
+            Start = new EventDateTime()
+            {
+                DateTime = DateTime.Parse("2024-03-26T09:00:00-07:00"),
+                TimeZone = "GMT"
+            },
+            End = new EventDateTime()
+            {
+                DateTime = DateTime.Parse("2024-03-26T10:00:00-07:00"),
+                TimeZone = "GMT"
+            }
+        };
+        String calendarId = "owenhowarth@googlemail.com";
+        EventsResource.InsertRequest request = service.Events.Insert(newEvent, calendarId);
+        Event createdEvent = request.Execute();
+        Console.WriteLine("Event created: {0}", createdEvent.HtmlLink);
+
+
+
     }
 }
