@@ -5,6 +5,8 @@ using Google.Apis.Calendar.v3.Data;
 using Google.Apis.Calendar.v3;
 using System.Globalization;
 using Google.Apis.Auth.OAuth2;
+using Google.Apis.Util.Store;
+using Newtonsoft.Json;
 public class Extratime
 {
     public object home;
@@ -135,17 +137,122 @@ public class Venue
 
 public class ResponseEvent
 {
-    }
+    public Response response;
+    public string id;
+}
 
 
 public class Program
 {
 
+
+    //Most up to date games
+    public static Root games = new Root();
+
+    //List of upcoming games
+    public static List<ResponseEvent> events = new List<ResponseEvent>();
+
+    public const string CALENDARID = "[CALENDAR ID HERE]";
+    public const string FILEPATH = "data.json";
+
     public static void Main()
     {
-        Task task = RunEventCreator();
-        task.Wait();
+        GetStoredGames();
+        Task setupAuth = SetupAuth();
+        setupAuth.Wait();
+        GetAndCheckUpdates();
+        StoreGames();
+        Console.WriteLine("DONE");
+        Console.ReadLine();
     }
+
+    public static void GetStoredGames()
+    {
+        if (File.Exists(FILEPATH))
+        {
+            string json = File.ReadAllText(FILEPATH);
+            events = JsonConvert.DeserializeObject<List<ResponseEvent>>(json);
+        }
+    }
+
+    public static void StoreGames()
+    {
+        string json = JsonConvert.SerializeObject(events);
+        File.WriteAllText(FILEPATH, json);
+    }
+
+
+    public static void GetAndCreateAllGames()
+    {
+        Task GetGames = MainAsync();
+
+        Task task = SetupAuth();
+        
+        GetGames.Wait();
+
+        task.Wait();
+
+        
+
+        foreach (Response r in games.response)
+        {
+           Task createE = CreateEvent(r);
+            createE.Wait();
+        }
+    }
+
+    public static void GetAndCheckUpdates() { 
+        Task GetUpdates = MainAsync();
+
+        //Check to see if the most recent games are complete 
+        if (events.Count > 0)
+        {
+            while (events.Count > 0 && events[0].response.fixture.date < DateTime.Now)
+            {
+                events.RemoveAt(0);
+            }
+        }
+
+        Task GetUpdatedGmaes = MainAsync(); 
+        GetUpdatedGmaes.Wait();
+
+        foreach(Response r in games.response)
+        {
+            if (r.fixture.status.@short == "CANC") ;
+            bool DoesExist = false;
+            foreach (ResponseEvent er in events)
+            {
+                if (r.fixture.id == er.response.fixture.id)
+                {
+                    DoesExist = true;
+                    //Check to see if date and time are the same
+                    if (r.fixture.date == er.response.fixture.date)
+                    {
+                        //Same date
+                    } else
+                    {
+                        //Update date
+                        Task UpdateDate = UpdateEvent(r, er.id);
+                        UpdateDate.Wait();
+                        er.response = r;
+
+                    }
+                }
+            }
+            if (!DoesExist)
+            {
+                //Create new event
+                Task createEvent = CreateEvent(r);
+                createEvent.Wait();
+            }
+
+
+        }
+
+
+
+    }
+
 
     public static async Task MainAsync()
     {
@@ -156,8 +263,8 @@ public class Program
             RequestUri = new Uri("https://api-football-v1.p.rapidapi.com/v3/fixtures?season=2023&team=42&next=20"),
             Headers =
     {
-        { "X-RapidAPI-Key", "KEY HERE" },
-        { "X-RapidAPI-Host", "HOST HERE" },
+        { "X-RapidAPI-Key", "[KEY HERE]" },
+        { "X-RapidAPI-Host", "[HOST HERE]" },
     },
         };
         using (var response = await client.SendAsync(request))
@@ -167,52 +274,86 @@ public class Program
             Console.WriteLine(body);
             string docPath =
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            // Write the string array to a new file named "WriteLines.txt".
             Root myDeserializedClass = JsonConvert.DeserializeObject<Root>(body);
             Console.WriteLine(myDeserializedClass.response[0].fixture.id);
+            games = myDeserializedClass;
         }
+    }
+    public static UserCredential credential;
+    
+
+    private static async Task SetupAuth()
+    { 
+        
+        using (var stream = new FileStream("client_secret.json", FileMode.Open, FileAccess.Read))
+        {
+            credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
+                GoogleClientSecrets.Load(stream).Secrets,
+                new[] { CalendarService.Scope.Calendar },
+                "user", CancellationToken.None, new FileDataStore("Program"));
+        }
+
     }
 
     
 
-    private static async Task RunEventCreator()
-    {
-        /**  var client = new HttpClient();
-          var request = new HttpRequestMessage
-          {
-              Method = HttpMethod.Post,
-              RequestUri = new Uri("https://www.googleapis.com/calendar/v3/calendars/calendarId/events")
-          };
-        **/
-        // Create the service.
-        var service = new CalendarService(new BaseClientService.Initializer
+    private static async Task CreateEvent(Response r)
+    { 
+        var service = new CalendarService(new BaseClientService.Initializer()
         {
-            ApplicationName = "NAME HERE",
-            ApiKey = "KEY HERE",
+            HttpClientInitializer = credential,
+            ApplicationName = "FootballFixture",
         });
-
-
         Event newEvent = new Event()
         {
-            Summary = "This is a test Event",
-            Description = "Description",
+            
+            Summary = r.teams.home.name + " v " + r.teams.away.name,
+            Description = r.fixture.status.@long + "",
             Start = new EventDateTime()
             {
-                DateTime = DateTime.Parse("2024-03-26T09:00:00-07:00"),
-                TimeZone = "GMT"
+                DateTime = r.fixture.date,
+                TimeZone = r.fixture.timezone
             },
             End = new EventDateTime()
             {
-                DateTime = DateTime.Parse("2024-03-26T10:00:00-07:00"),
+                DateTime = r.fixture.date.AddHours(1),
                 TimeZone = "GMT"
             }
+
+
         };
-        String calendarId = "owenhowarth@googlemail.com";
-        EventsResource.InsertRequest request = service.Events.Insert(newEvent, calendarId);
+        EventsResource.InsertRequest request = service.Events.Insert(newEvent, CALENDARID);
         Event createdEvent = request.Execute();
+        ResponseEvent re = new ResponseEvent();
+        re.response = r;
+        re.id = createdEvent.ICalUID;
+        events.Add(re);
         Console.WriteLine("Event created: {0}", createdEvent.HtmlLink);
-
-
-
     }
+
+    private static async Task UpdateEvent(Response r, string EventID)
+    {
+        var service = new CalendarService(new BaseClientService.Initializer()
+        {
+            HttpClientInitializer = credential,
+            ApplicationName = "FootballFixture",
+        });
+        Event currentEvent = new Event();
+        EventsResource.GetRequest req = service.Events.Get(CALENDARID, EventID);
+        currentEvent = req.Execute();
+        currentEvent.Start = new EventDateTime() {
+            DateTime = r.fixture.date,
+            TimeZone = r.fixture.timezone
+        };
+        currentEvent.Summary = r.teams.home.name + " v " + r.teams.away.name;
+        if (r.teams.home.name == "Arsenal") currentEvent.Summary += "(H)";
+        else currentEvent.Summary += "(A)";
+        EventsResource.UpdateRequest request = service.Events.Update(currentEvent, CALENDARID, EventID);
+        Event updated  = request.Execute();
+        Console.WriteLine($"Updated event: {currentEvent.HtmlLink} , new link? {updated.HtmlLink}");
+         
+
+
+    } 
+
 }
