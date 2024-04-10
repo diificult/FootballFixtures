@@ -16,7 +16,7 @@ https://www.api-football.com/
 
 ## Roadmap
 
-1. Download the data.
-2. Create event on google calender using this data.
-3. Keep program running on server to update each day.
-4. Add more advanced data e.g. previous meetings to description.
+- [x] 1. Download the data. 
+- [x] 2. Create event on google calender using this data.
+- [x] 3. Keep program running on server to update each day.
+- [ ] 4. Add more advanced data e.g. previous meetings to description.
