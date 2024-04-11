@@ -7,6 +7,8 @@ using System.Globalization;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Util.Store;
 using Newtonsoft.Json;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 public class Extratime
 {
     public object home;
@@ -157,13 +159,19 @@ public class Program
 
     public static void Main()
     {
-        GetStoredGames();
         Task setupAuth = SetupAuth();
         setupAuth.Wait();
+       // Task t = GetAllEvents();
+       // t.Wait();
+        
+        
+        GetStoredGames();
+        
         GetAndCheckUpdates();
         StoreGames();
         Console.WriteLine("DONE");
         Console.ReadLine();
+        
     }
 
     public static void GetStoredGames()
@@ -264,18 +272,18 @@ public class Program
             Headers =
     {
         { "X-RapidAPI-Key", "[KEY HERE]" },
-        { "X-RapidAPI-Host", "[HOST HERE]" },
+        { "X-RapidAPI-Host", "api-football-v1.p.rapidapi.com" },
     },
         };
         using (var response = await client.SendAsync(request))
         {
             response.EnsureSuccessStatusCode();
             var body = await response.Content.ReadAsStringAsync();
-            Console.WriteLine(body);
+            //Console.WriteLine(body);
             string docPath =
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             Root myDeserializedClass = JsonConvert.DeserializeObject<Root>(body);
-            Console.WriteLine(myDeserializedClass.response[0].fixture.id);
+           // Console.WriteLine(myDeserializedClass.response[0].fixture.id);
             games = myDeserializedClass;
         }
     }
@@ -304,10 +312,14 @@ public class Program
             HttpClientInitializer = credential,
             ApplicationName = "FootballFixture",
         });
+        string title = r.teams.home.name + " v " + r.teams.away.name;
+        if (r.teams.home.name == "Arsenal") title += "(H)";
+        else title += "(A)";
         Event newEvent = new Event()
         {
+
+            Summary = title,
             
-            Summary = r.teams.home.name + " v " + r.teams.away.name,
             Description = r.fixture.status.@long + "",
             Start = new EventDateTime()
             {
@@ -316,7 +328,7 @@ public class Program
             },
             End = new EventDateTime()
             {
-                DateTime = r.fixture.date.AddHours(1),
+                DateTime = r.fixture.date.AddHours(2),
                 TimeZone = "GMT"
             }
 
@@ -339,10 +351,23 @@ public class Program
             ApplicationName = "FootballFixture",
         });
         Event currentEvent = new Event();
+        Console.WriteLine($"Attempting to get {EventID} from {CALENDARID}");
+        EventID = Regex.Replace(EventID, @"@google\.com$", "");
         EventsResource.GetRequest req = service.Events.Get(CALENDARID, EventID);
-        currentEvent = req.Execute();
+        try
+        {
+            currentEvent = req.Execute();
+        }catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
         currentEvent.Start = new EventDateTime() {
             DateTime = r.fixture.date,
+            TimeZone = r.fixture.timezone
+        };
+        currentEvent.End = new EventDateTime()
+        {
+            DateTime = r.fixture.date.AddHours(2),
             TimeZone = r.fixture.timezone
         };
         currentEvent.Summary = r.teams.home.name + " v " + r.teams.away.name;
@@ -351,9 +376,44 @@ public class Program
         EventsResource.UpdateRequest request = service.Events.Update(currentEvent, CALENDARID, EventID);
         Event updated  = request.Execute();
         Console.WriteLine($"Updated event: {currentEvent.HtmlLink} , new link? {updated.HtmlLink}");
+
          
 
 
     } 
+
+    public static async Task GetAllEvents()
+    {
+        var service = new CalendarService(new BaseClientService.Initializer()
+        {
+            HttpClientInitializer = credential,
+            ApplicationName = "FootballFixture",
+        });
+
+        // Define parameters of request.
+        EventsResource.ListRequest request = service.Events.List("9e78488dc4a1ea135346438fbfa5d6ae7f388259b0595b24ae8dcf3ec1cdd525@group.calendar.google.com");
+        request.TimeMin = DateTime.Now;
+        request.ShowDeleted = false;
+        request.SingleEvents = true;
+        request.MaxResults = 10;
+        request.OrderBy = EventsResource.ListRequest.OrderByEnum.StartTime;
+
+        // List events.
+        Events events = request.Execute();
+        Console.WriteLine("Upcoming events:");
+        if (events.Items != null && events.Items.Count > 0)
+        {
+            foreach (var eventItem in events.Items)
+            {
+                string eventId = eventItem.Id;
+                Console.WriteLine("{0} ({1})", eventItem.Summary, eventId);
+            }
+        }
+        else
+        {
+            Console.WriteLine("No upcoming events found.");
+        }
+        Console.Read();
+    }
 
 }
